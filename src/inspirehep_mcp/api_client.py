@@ -2,16 +2,16 @@
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 import httpx
 
-from .cache import TTLCache
+from .cache import TTLCache, SQLiteCache, create_cache
+from .config import settings
 from .errors import APIError, NotFoundError, RateLimitError
 
 logger = logging.getLogger(__name__)
-
-INSPIREHEP_API_BASE = "https://inspirehep.net/api"
 
 # Default fields to request for literature searches (keeps payloads small)
 _LITERATURE_FIELDS = ",".join(
@@ -36,24 +36,41 @@ class InspireHEPClient:
 
     Features:
     - Automatic rate limiting (token-bucket, configurable)
-    - In-memory TTL cache for GET requests
+    - In-memory or persistent (SQLite) cache for GET requests
     - Structured error handling
+    - Request timing instrumentation
     """
 
     def __init__(
         self,
         *,
-        requests_per_second: float = 1.5,
-        cache_ttl: float = 86400,
-        cache_max_size: int = 512,
-        timeout: float = 30.0,
+        requests_per_second: float | None = None,
+        cache_ttl: float | None = None,
+        cache_max_size: int | None = None,
+        cache_persistent: bool | None = None,
+        cache_db_path: str | None = None,
+        timeout: float | None = None,
+        api_base_url: str | None = None,
     ) -> None:
-        self._rate_interval = 1.0 / requests_per_second
+        rps = requests_per_second if requests_per_second is not None else settings.requests_per_second
+        self._rate_interval = 1.0 / rps
         self._last_request_time: float = 0.0
         self._rate_lock = asyncio.Lock()
-        self._cache = TTLCache(ttl_seconds=cache_ttl, max_size=cache_max_size)
-        self._timeout = timeout
+
+        self._cache = create_cache(
+            persistent=cache_persistent if cache_persistent is not None else settings.cache_persistent,
+            db_path=cache_db_path or settings.cache_db_path,
+            ttl_seconds=cache_ttl if cache_ttl is not None else settings.cache_ttl,
+            max_size=cache_max_size if cache_max_size is not None else settings.cache_max_size,
+        )
+
+        self._timeout = timeout if timeout is not None else settings.api_timeout
+        self._base_url = api_base_url or settings.api_base_url
         self._client: httpx.AsyncClient | None = None
+
+        # Request timing stats
+        self._total_requests = 0
+        self._total_request_time = 0.0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -62,7 +79,7 @@ class InspireHEPClient:
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
             self._client = httpx.AsyncClient(
-                base_url=INSPIREHEP_API_BASE,
+                base_url=self._base_url,
                 timeout=self._timeout,
                 headers={
                     "Accept": "application/json",
@@ -112,12 +129,25 @@ class InspireHEPClient:
         await self._wait_for_rate_limit()
 
         client = await self._get_client()
+        t0 = time.monotonic()
         try:
             response = await client.request(method, path, params=params)
         except httpx.TimeoutException as exc:
-            raise APIError("Request timed out", details=str(exc)) from exc
+            raise APIError(
+                "Request timed out",
+                details=f"The InspireHEP API did not respond within {self._timeout}s. "
+                f"Try again later or use a cached result. Path: {path}",
+            ) from exc
         except httpx.HTTPError as exc:
-            raise APIError("HTTP request failed", details=str(exc)) from exc
+            raise APIError(
+                "HTTP request failed",
+                details=f"Could not connect to InspireHEP API: {exc}. "
+                "Check your network connection.",
+            ) from exc
+        finally:
+            elapsed = time.monotonic() - t0
+            self._total_requests += 1
+            self._total_request_time += elapsed
 
         if response.status_code == 429:
             retry_after = response.headers.get("Retry-After")
@@ -281,5 +311,21 @@ class InspireHEPClient:
     # ------------------------------------------------------------------
 
     @property
-    def cache_stats(self) -> dict[str, int]:
+    def cache_stats(self) -> dict[str, Any]:
         return self._cache.stats
+
+    @property
+    def request_stats(self) -> dict[str, Any]:
+        avg = (self._total_request_time / self._total_requests) if self._total_requests else 0.0
+        return {
+            "total_requests": self._total_requests,
+            "total_request_time_seconds": round(self._total_request_time, 3),
+            "average_request_time_seconds": round(avg, 3),
+        }
+
+    @property
+    def full_stats(self) -> dict[str, Any]:
+        return {
+            "cache": self.cache_stats,
+            "requests": self.request_stats,
+        }

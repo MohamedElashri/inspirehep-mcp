@@ -1,10 +1,12 @@
 """InspireHEP MCP Server - main entry point."""
 
+import json
 import logging
 
 from mcp.server.fastmcp import FastMCP
 
 from .api_client import InspireHEPClient
+from .config import settings
 from .tools import get_author_papers as _get_author_papers
 from .tools import get_citations as _get_citations
 from .tools import get_paper_details as _get_paper_details
@@ -32,6 +34,16 @@ api_client = InspireHEPClient()
 async def ping() -> str:
     """Check that the InspireHEP MCP server is running."""
     return "InspireHEP MCP server is running."
+
+
+@mcp.tool()
+async def server_stats() -> str:
+    """Return cache and request performance statistics for the server.
+
+    Useful for monitoring cache hit rates, request counts, and
+    average response times. No parameters required.
+    """
+    return json.dumps(api_client.full_stats, indent=2)
 
 
 @mcp.tool()
@@ -178,8 +190,14 @@ async def get_references(
 
 def main() -> None:
     """Run the InspireHEP MCP server."""
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
     logger.info("Starting InspireHEP MCP server...")
+    logger.info(
+        "Config: cache_persistent=%s, cache_ttl=%s, rate_limit=%.1f req/s",
+        settings.cache_persistent,
+        settings.cache_ttl,
+        settings.requests_per_second,
+    )
     mcp.run()
 
 
