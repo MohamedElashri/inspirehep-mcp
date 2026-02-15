@@ -704,3 +704,80 @@ async def get_references(
         "references": formatted_text,
     }
     return json.dumps(result, indent=2)
+
+
+# ======================================================================
+# get_bibtex
+# ======================================================================
+
+async def get_bibtex(
+    client: InspireHEPClient,
+    identifier: str,
+) -> str:
+    """Retrieve the BibTeX citation entry for a paper.
+
+    Accepts any common identifier format:
+    - Inspire ID: "3456"
+    - arXiv ID: "2301.12345", "hep-ph/0123456", or full URL
+    - DOI: "10.1103/PhysRevLett.123.456789" or full URL
+
+    Args:
+        client: The shared API client.
+        identifier: A DOI, arXiv ID, or InspireHEP record ID.
+
+    Returns:
+        JSON string containing the BibTeX entry and paper metadata.
+    """
+    # Detect identifier type and normalise
+    try:
+        id_type, normalised = detect_identifier_type(identifier)
+    except InvalidIdentifierError as exc:
+        return _format_error(exc)
+
+    # Resolve to an Inspire record so we can get the recid
+    try:
+        if id_type == "inspire":
+            record = await client.get_literature_record(normalised, fields="titles,texkeys")
+        elif id_type == "arxiv":
+            record = await client.get_literature_by_arxiv(normalised, fields="titles,texkeys")
+        elif id_type == "doi":
+            record = await client.get_literature_by_doi(normalised, fields="titles,texkeys")
+        else:
+            return _format_error(ValueError(f"Unsupported identifier type: {id_type}"))
+    except NotFoundError:
+        return _format_error(NotFoundError("paper", identifier))
+    except InspireHEPError as exc:
+        return _format_error(exc)
+
+    meta = record.get("metadata", {})
+    # For arXiv/DOI lookups record["id"] may be the arXiv ID or DOI,
+    # so prefer control_number which is always the numeric Inspire recid.
+    recid = str(meta.get("control_number", record.get("id", "")))
+    title = ""
+    titles = meta.get("titles", [])
+    if titles:
+        title = titles[0].get("title", "")
+    texkeys = meta.get("texkeys", [])
+    texkey = texkeys[0] if texkeys else None
+
+    if not recid:
+        return _format_error(ValueError("Could not determine Inspire record ID for this paper."))
+
+    # Fetch BibTeX formatted text
+    try:
+        bibtex_text = await client.get_text(
+            f"/literature/{recid}",
+            params={"format": "bibtex"},
+        )
+    except InspireHEPError as exc:
+        return _format_error(exc)
+
+    result: dict[str, Any] = {
+        "inspire_id": recid,
+        "identifier": identifier,
+        "identifier_type": id_type,
+        "paper_title": title,
+        "texkey": texkey,
+        "bibtex": bibtex_text.strip(),
+    }
+    return json.dumps(result, indent=2)

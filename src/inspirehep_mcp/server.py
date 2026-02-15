@@ -8,6 +8,7 @@ from mcp.server.fastmcp import FastMCP
 from .api_client import InspireHEPClient
 from .config import settings
 from .tools import get_author_papers as _get_author_papers
+from .tools import get_bibtex as _get_bibtex
 from .tools import get_citations as _get_citations
 from .tools import get_paper_details as _get_paper_details
 from .tools import get_references as _get_references
@@ -181,6 +182,26 @@ async def get_references(
     total reference count and paper title.
     """
     return await _get_references(api_client, inspire_id=inspire_id, format=format)
+
+
+@mcp.tool()
+async def get_bibtex(
+    identifier: str,
+) -> str:
+    """Retrieve the BibTeX citation entry for a paper.
+
+    Accepts any common identifier format:
+    - Inspire ID: "3456"
+    - arXiv ID: "2301.12345", "hep-ph/0123456", or full URL
+    - DOI: "10.1103/PhysRevLett.123.456789" or full URL
+
+    Args:
+        identifier: A DOI, arXiv ID, or InspireHEP record ID.
+
+    Returns the BibTeX entry along with paper title, texkey, and
+    the resolved Inspire record ID.
+    """
+    return await _get_bibtex(api_client, identifier=identifier)
 
 
 # ------------------------------------------------------------------

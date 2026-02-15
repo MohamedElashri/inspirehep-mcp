@@ -14,6 +14,7 @@ import pytest_asyncio
 from inspirehep_mcp.api_client import InspireHEPClient
 from inspirehep_mcp.tools import (
     get_author_papers,
+    get_bibtex,
     get_citations,
     get_paper_details,
     get_references,
@@ -286,4 +287,43 @@ class TestGetReferences:
         result = json.loads(
             await get_references(client, inspire_id="abc")
         )
+        assert "error" in result
+
+
+# ======================================================================
+# get_bibtex
+# ======================================================================
+
+
+class TestGetBibtex:
+    async def test_by_inspire_id(self, client):
+        result = json.loads(await get_bibtex(client, identifier="3456"))
+        assert result["inspire_id"] == "3456"
+        assert result["identifier_type"] == "inspire"
+        assert "@" in result["bibtex"]  # BibTeX entries start with @
+
+    async def test_by_arxiv_id(self, client):
+        result = json.loads(await get_bibtex(client, identifier="1207.7214"))
+        assert result["identifier_type"] == "arxiv"
+        assert "@" in result["bibtex"]
+        assert "paper_title" in result
+        assert result["paper_title"] != ""
+
+    async def test_by_doi(self, client):
+        result = json.loads(
+            await get_bibtex(client, identifier="10.1016/0370-2693(73)90494-2")
+        )
+        assert result["identifier_type"] == "doi"
+        assert "@" in result["bibtex"]
+
+    async def test_texkey_present(self, client):
+        result = json.loads(await get_bibtex(client, identifier="3456"))
+        assert "texkey" in result
+
+    async def test_not_found(self, client):
+        result = json.loads(await get_bibtex(client, identifier="99999999999"))
+        assert "error" in result
+
+    async def test_invalid_identifier(self, client):
+        result = json.loads(await get_bibtex(client, identifier="not-a-valid-id"))
         assert "error" in result
