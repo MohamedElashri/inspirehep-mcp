@@ -235,6 +235,78 @@ async def get_paper_details(
 
 
 # ======================================================================
+# get_paper_figures
+# ======================================================================
+
+async def get_paper_figures(
+    client: InspireHEPClient,
+    inspire_id: str | None = None,
+    arxiv_id: str | None = None,
+    doi: str | None = None,
+) -> str:
+    """Retrieve figures for a specific paper.
+
+    At least one identifier must be provided. The lookup order is:
+    inspire_id > arxiv_id > doi.
+
+    Args:
+        client: The shared API client.
+        inspire_id: InspireHEP record ID.
+        arxiv_id: arXiv identifier (any format).
+        doi: Digital Object Identifier (any format).
+
+    Returns:
+        JSON string with figures details for the LLM.
+    """
+    if not any([inspire_id, arxiv_id, doi]):
+        return _format_error(
+            ValueError("At least one identifier must be provided (inspire_id, arxiv_id, or doi)")
+        )
+
+    try:
+        if inspire_id:
+            nid = normalize_inspire_id(inspire_id)
+            record = await client.get_literature_record(nid, fields="figures,titles")
+        elif arxiv_id:
+            nid = normalize_arxiv_id(arxiv_id)
+            record = await client.get_literature_by_arxiv(nid, fields="figures,titles")
+        else:
+            assert doi is not None
+            nid = normalize_doi(doi)
+            record = await client.get_literature_by_doi(nid, fields="figures,titles")
+    except NotFoundError:
+        identifier = inspire_id or arxiv_id or doi
+        return _format_error(NotFoundError("paper", str(identifier)))
+    except (InvalidIdentifierError, InspireHEPError) as exc:
+        return _format_error(exc)
+
+    meta = record.get("metadata", {})
+    titles = meta.get("titles", [])
+    title = titles[0].get("title", "") if titles else ""
+    inspire_url = f"https://inspirehep.net/literature/{record.get('id', '')}"
+    
+    raw_figures = meta.get("figures", [])
+    figures = []
+    
+    for fig in raw_figures:
+        figures.append({
+            "caption": fig.get("caption", ""),
+            "url": fig.get("url", ""),
+            "description": fig.get("description", "")
+        })
+
+    result: dict[str, Any] = {
+        "inspire_id": str(meta.get("control_number", record.get("id", ""))),
+        "title": title,
+        "inspire_url": inspire_url,
+        "figures_count": len(figures),
+        "figures": figures,
+    }
+
+    return json.dumps(result, indent=2)
+
+
+# ======================================================================
 # get_author_papers
 # ======================================================================
 
