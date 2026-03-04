@@ -57,6 +57,9 @@ class TestNormalizeArxivId:
     def test_other_archive_old_style(self):
         assert normalize_arxiv_id("astro-ph/0123456") == "astro-ph/0123456"
 
+    def test_float_input(self):
+        assert normalize_arxiv_id(1234.56789) == "1234.56789"
+
 
 # ======================================================================
 # normalize_doi
@@ -115,6 +118,9 @@ class TestNormalizeInspireId:
         with pytest.raises(InvalidIdentifierError):
             normalize_inspire_id("")
 
+    def test_int_input(self):
+        assert normalize_inspire_id(3456) == "3456"
+
 
 # ======================================================================
 # detect_identifier_type
@@ -151,6 +157,12 @@ class TestDetectIdentifierType:
         with pytest.raises(InvalidIdentifierError) as exc_info:
             detect_identifier_type("random-string")
         assert exc_info.value.id_type == "unknown"
+
+    def test_arxiv_float_input(self):
+        assert detect_identifier_type(1234.56789) == ("arxiv", "1234.56789")
+
+    def test_inspire_int_input(self):
+        assert detect_identifier_type(3456) == ("inspire", "3456")
 
 
 # ======================================================================

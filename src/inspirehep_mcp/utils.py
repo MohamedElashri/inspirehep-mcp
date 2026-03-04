@@ -30,7 +30,7 @@ def normalize_arxiv_id(raw: str) -> str:
     Returns the bare ID, e.g. '2301.12345' or 'hep-ph/0123456'.
     Raises InvalidIdentifierError if the format is unrecognised.
     """
-    raw = raw.strip()
+    raw = str(raw).strip()
 
     # Try URL first
     url_match = _ARXIV_URL_RE.search(raw)
@@ -55,7 +55,7 @@ def normalize_doi(raw: str) -> str:
     Returns the bare DOI string.
     Raises InvalidIdentifierError if the format is unrecognised.
     """
-    raw = raw.strip()
+    raw = str(raw).strip()
 
     # Try URL first
     url_match = _DOI_URL_RE.search(raw)
@@ -73,7 +73,7 @@ def normalize_inspire_id(raw: str) -> str:
 
     Raises InvalidIdentifierError if not numeric.
     """
-    raw = raw.strip()
+    raw = str(raw).strip()
     if _INSPIRE_ID_RE.match(raw):
         return raw
     raise InvalidIdentifierError("Inspire", raw)
@@ -85,7 +85,7 @@ def detect_identifier_type(raw: str) -> tuple[str, str]:
     Returns one of: ('inspire', id), ('arxiv', id), ('doi', id).
     Raises InvalidIdentifierError if the format cannot be determined.
     """
-    raw = raw.strip()
+    raw = str(raw).strip()
 
     # DOI always starts with 10. or contains doi.org
     if raw.startswith("10.") or "doi.org/" in raw:
