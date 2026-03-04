@@ -11,6 +11,7 @@ from .tools import get_author_papers as _get_author_papers
 from .tools import get_bibtex as _get_bibtex
 from .tools import get_citations as _get_citations
 from .tools import get_paper_details as _get_paper_details
+from .tools import get_paper_figures as _get_paper_figures
 from .tools import get_references as _get_references
 from .tools import search_by_collaboration as _search_by_collaboration
 from .tools import search_papers as _search_papers
@@ -86,6 +87,27 @@ async def get_paper_details(
     publication info, keywords, URLs, and more.
     """
     return await _get_paper_details(
+        api_client, inspire_id=inspire_id, arxiv_id=arxiv_id, doi=doi
+    )
+
+
+@mcp.tool()
+async def get_paper_figures(
+    inspire_id: str | None = None,
+    arxiv_id: str | None = None,
+    doi: str | None = None,
+) -> str:
+    """Retrieve figures for a specific paper.
+
+    Provide at least one identifier. Accepts multiple formats:
+    - inspire_id: "3456"
+    - arxiv_id: "2301.12345", "hep-ph/0123456", or full URL
+    - doi: "10.1103/PhysRevLett.123.456789" or full URL
+
+    Returns title, inspire url, and a list of figures with their captions,
+    descriptions and direct download URLs.
+    """
+    return await _get_paper_figures(
         api_client, inspire_id=inspire_id, arxiv_id=arxiv_id, doi=doi
     )
 

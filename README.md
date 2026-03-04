@@ -116,6 +116,7 @@ Add to `~/.gemini/settings.json` (user scope) or `.gemini/settings.json` (projec
 | `get_author_papers` | Retrieve an author's publications and citation metrics |
 | `get_citations` | Explore citation graph — who cites a paper, or what it cites |
 | `search_by_collaboration` | Find publications from ATLAS, CMS, LHCb, etc. |
+| `get_paper_figures` | Retrieve figures and download URLs for a paper |
 | `get_references` | Generate BibTeX, LaTeX, or JSON reference lists |
 | `get_bibtex` | Retrieve BibTeX citation entry by DOI, arXiv ID, or Inspire ID |
 | `server_stats` | Monitor cache hit rates and API performance |

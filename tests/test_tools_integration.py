@@ -17,6 +17,7 @@ from inspirehep_mcp.tools import (
     get_bibtex,
     get_citations,
     get_paper_details,
+    get_paper_figures,
     get_references,
     search_by_collaboration,
     search_papers,
@@ -110,6 +111,40 @@ class TestGetPaperDetails:
         assert "document_type" in result
         assert "urls" in result
         assert isinstance(result["urls"], dict)
+
+
+        assert isinstance(result["urls"], dict)
+
+
+# ======================================================================
+# get_paper_figures
+# ======================================================================
+
+
+class TestGetPaperFigures:
+    async def test_by_inspire_id(self, client):
+        # Using the same paper from our manual testing "1713538"
+        result = json.loads(await get_paper_figures(client, inspire_id="1713538"))
+        assert result["inspire_id"] == "1713538"
+        assert "title" in result
+        assert "figures_count" in result
+        assert isinstance(result["figures"], list)
+        if result["figures_count"] > 0:
+            assert "url" in result["figures"][0]
+            assert "caption" in result["figures"][0]
+
+    async def test_by_arxiv_id(self, client):
+        result = json.loads(await get_paper_figures(client, arxiv_id="1901.03867"))
+        assert result["inspire_id"] == "1713538"
+        assert "figures" in result
+
+    async def test_no_identifier(self, client):
+        result = json.loads(await get_paper_figures(client))
+        assert "error" in result
+
+    async def test_not_found(self, client):
+        result = json.loads(await get_paper_figures(client, inspire_id="99999999999"))
+        assert "error" in result
 
 
 # ======================================================================
