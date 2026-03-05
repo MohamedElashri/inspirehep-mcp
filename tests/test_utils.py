@@ -42,6 +42,15 @@ class TestNormalizeArxivId:
     def test_url_with_version(self):
         assert normalize_arxiv_id("https://arxiv.org/abs/2301.12345v3") == "2301.12345"
 
+    def test_arxiv_prefix(self):
+        assert normalize_arxiv_id("arxiv:2301.12345") == "2301.12345"
+
+    def test_arxiv_prefix_upper(self):
+        assert normalize_arxiv_id("arXiv:2301.12345") == "2301.12345"
+
+    def test_arxiv_prefix_old_style(self):
+        assert normalize_arxiv_id("arxiv:hep-ph/0123456") == "hep-ph/0123456"
+
     def test_whitespace_stripped(self):
         assert normalize_arxiv_id("  2301.12345  ") == "2301.12345"
 
@@ -144,6 +153,9 @@ class TestDetectIdentifierType:
 
     def test_arxiv_old(self):
         assert detect_identifier_type("hep-ph/0123456") == ("arxiv", "hep-ph/0123456")
+
+    def test_arxiv_prefix(self):
+        assert detect_identifier_type("arxiv:2301.12345") == ("arxiv", "2301.12345")
 
     def test_arxiv_url(self):
         t, v = detect_identifier_type("https://arxiv.org/abs/2301.12345")

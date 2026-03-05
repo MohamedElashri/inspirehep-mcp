@@ -790,7 +790,7 @@ async def get_bibtex(
 
     Accepts any common identifier format:
     - Inspire ID: "3456"
-    - arXiv ID: "2301.12345", "hep-ph/0123456", or full URL
+    - arXiv ID: "arxiv:2301.12345", "arxiv:hep-ph/0123456", or full URL
     - DOI: "10.1103/PhysRevLett.123.456789" or full URL
 
     Args:
