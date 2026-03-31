@@ -1,5 +1,7 @@
 # InspireHEP MCP Server
 
+[![SafeSkill 92/100](https://img.shields.io/badge/SafeSkill-92%2F100_Verified%20Safe-brightgreen)](https://safeskill.dev/scan/mohamedelashri-inspirehep-mcp)
+
 An [MCP](https://modelcontextprotocol.io/) server that integrates [InspireHEP](https://inspirehep.net/) high-energy physics literature with LLMs. Search papers, explore citations, retrieve author metrics, and generate formatted references.
 
 ## Installation
