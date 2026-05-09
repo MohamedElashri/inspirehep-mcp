@@ -1,6 +1,6 @@
 [project]
 name = "inspirehep-mcp"
-version = "0.1.3"
+version = "0.1.4"
 description = "MCP server for InspireHEP - integrate high-energy physics literature resources with LLMs"
 readme = "README.md"
 license = { text = "AGPL-3.0" }
