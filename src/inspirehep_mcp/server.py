@@ -1,10 +1,12 @@
 """InspireHEP MCP Server - main entry point."""
 
 import json
+from typing import Any
 import logging
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
+from . import __version__
 from .api_client import InspireHEPClient
 from .config import settings
 from .tools import get_author_papers as _get_author_papers
@@ -18,13 +20,28 @@ from .tools import search_papers as _search_papers
 
 logger = logging.getLogger(__name__)
 
-mcp = FastMCP(
+mcp = MCPServer(
     "InspireHEP",
-    instructions="MCP server for searching and retrieving high-energy physics literature from InspireHEP",
+    title="InspireHEP Literature Server",
+    description="Search and retrieve high-energy physics literature from InspireHEP",
+    instructions=(
+        "MCP server for searching and retrieving high-energy physics literature "
+        "from InspireHEP. Use search_papers to find papers, then get_paper_details, "
+        "get_citations, get_references, or get_bibtex with a resolved identifier."
+    ),
+    version=__version__,
 )
 
 # Shared API client instance
 api_client = InspireHEPClient()
+
+# All tools are pure read-only lookups against the public InspireHEP API.
+_READ_ONLY = {"readOnlyHint": True, "idempotentHint": True}
+
+
+def _structured(result: str) -> dict:
+    """Decode a JSON payload from the tools layer into structured output."""
+    return json.loads(result)
 
 
 # ------------------------------------------------------------------
@@ -32,28 +49,28 @@ api_client = InspireHEPClient()
 # ------------------------------------------------------------------
 
 
-@mcp.tool()
+@mcp.tool(title="Ping", annotations=_READ_ONLY)
 async def ping() -> str:
     """Check that the InspireHEP MCP server is running."""
     return "InspireHEP MCP server is running."
 
 
-@mcp.tool()
-async def server_stats() -> str:
+@mcp.tool(title="Server Stats", annotations=_READ_ONLY)
+async def server_stats() -> dict[str, Any]:
     """Return cache and request performance statistics for the server.
 
     Useful for monitoring cache hit rates, request counts, and
     average response times. No parameters required.
     """
-    return json.dumps(api_client.full_stats, indent=2)
+    return _structured(json.dumps(api_client.full_stats))
 
 
-@mcp.tool()
+@mcp.tool(title="Search Papers", annotations=_READ_ONLY)
 async def search_papers(
     query: str,
     sort: str = "bestmatch",
     size: int = 10,
-) -> str:
+) -> dict[str, Any]:
     """Search InspireHEP for papers matching a query.
 
     Supports free-text and field-specific queries such as:
@@ -67,15 +84,15 @@ async def search_papers(
         sort: Sort order — "bestmatch", "mostrecent", or "mostcited".
         size: Number of results to return (1-100, default 10).
     """
-    return await _search_papers(api_client, query, sort=sort, size=size)
+    return _structured(await _search_papers(api_client, query, sort=sort, size=size))
 
 
-@mcp.tool()
+@mcp.tool(title="Get Paper Details", annotations=_READ_ONLY)
 async def get_paper_details(
     inspire_id: str | None = None,
     arxiv_id: str | None = None,
     doi: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Retrieve detailed metadata for a specific paper.
 
     Provide at least one identifier. Accepts multiple formats:
@@ -86,17 +103,19 @@ async def get_paper_details(
     Returns title, authors, abstract, citations, references count,
     publication info, keywords, URLs, and more.
     """
-    return await _get_paper_details(
-        api_client, inspire_id=inspire_id, arxiv_id=arxiv_id, doi=doi
+    return _structured(
+        await _get_paper_details(
+            api_client, inspire_id=inspire_id, arxiv_id=arxiv_id, doi=doi
+        )
     )
 
 
-@mcp.tool()
+@mcp.tool(title="Get Paper Figures", annotations=_READ_ONLY)
 async def get_paper_figures(
     inspire_id: str | None = None,
     arxiv_id: str | None = None,
     doi: str | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Retrieve figures for a specific paper.
 
     Provide at least one identifier. Accepts multiple formats:
@@ -107,18 +126,20 @@ async def get_paper_figures(
     Returns title, inspire url, and a list of figures with their captions,
     descriptions and direct download URLs.
     """
-    return await _get_paper_figures(
-        api_client, inspire_id=inspire_id, arxiv_id=arxiv_id, doi=doi
+    return _structured(
+        await _get_paper_figures(
+            api_client, inspire_id=inspire_id, arxiv_id=arxiv_id, doi=doi
+        )
     )
 
 
-@mcp.tool()
+@mcp.tool(title="Get Author Papers", annotations=_READ_ONLY)
 async def get_author_papers(
     author_name: str | None = None,
     author_id: str | None = None,
     sort: str = "mostrecent",
     size: int = 20,
-) -> str:
+) -> dict[str, Any]:
     """Retrieve publication history and citation metrics for an author.
 
     Provide either author_name or author_id:
@@ -134,17 +155,23 @@ async def get_author_papers(
         sort: Sort order — "mostrecent" or "mostcited".
         size: Number of papers to return (1-100, default 20).
     """
-    return await _get_author_papers(
-        api_client, author_name=author_name, author_id=author_id, sort=sort, size=size
+    return _structured(
+        await _get_author_papers(
+            api_client,
+            author_name=author_name,
+            author_id=author_id,
+            sort=sort,
+            size=size,
+        )
     )
 
 
-@mcp.tool()
+@mcp.tool(title="Get Citations", annotations=_READ_ONLY)
 async def get_citations(
     inspire_id: str,
     direction: str = "citing",
     size: int = 50,
-) -> str:
+) -> dict[str, Any]:
     """Retrieve citation graph data for a paper.
 
     Args:
@@ -155,18 +182,20 @@ async def get_citations(
     Returns citation list with metadata, total count, and a
     year-by-year citation timeline.
     """
-    return await _get_citations(
-        api_client, inspire_id=inspire_id, direction=direction, size=size
+    return _structured(
+        await _get_citations(
+            api_client, inspire_id=inspire_id, direction=direction, size=size
+        )
     )
 
 
-@mcp.tool()
+@mcp.tool(title="Search by Collaboration", annotations=_READ_ONLY)
 async def search_by_collaboration(
     collaboration_name: str,
     sort: str = "mostrecent",
     size: int = 20,
     year: int | None = None,
-) -> str:
+) -> dict[str, Any]:
     """Find publications from a specific experimental collaboration.
 
     Handles common name variations (e.g. "lhcb" → "LHCb").
@@ -180,20 +209,22 @@ async def search_by_collaboration(
     Returns publication list, year distribution, total citations,
     and top-cited papers from the returned set.
     """
-    return await _search_by_collaboration(
-        api_client,
-        collaboration_name=collaboration_name,
-        sort=sort,
-        size=size,
-        year=year,
+    return _structured(
+        await _search_by_collaboration(
+            api_client,
+            collaboration_name=collaboration_name,
+            sort=sort,
+            size=size,
+            year=year,
+        )
     )
 
 
-@mcp.tool()
+@mcp.tool(title="Get References", annotations=_READ_ONLY)
 async def get_references(
     inspire_id: str,
     format: str = "bibtex",
-) -> str:
+) -> dict[str, Any]:
     """Generate a formatted reference list for a paper.
 
     Args:
@@ -203,13 +234,13 @@ async def get_references(
     Returns the reference list in the requested format along with
     total reference count and paper title.
     """
-    return await _get_references(api_client, inspire_id=inspire_id, format=format)
+    return _structured(await _get_references(api_client, inspire_id=inspire_id, format=format))
 
 
-@mcp.tool()
+@mcp.tool(title="Get BibTeX", annotations=_READ_ONLY)
 async def get_bibtex(
     identifier: str,
-) -> str:
+) -> dict[str, Any]:
     """Retrieve the BibTeX citation entry for a paper.
 
     Accepts any common identifier format:
@@ -223,7 +254,7 @@ async def get_bibtex(
     Returns the BibTeX entry along with paper title, texkey, and
     the resolved Inspire record ID.
     """
-    return await _get_bibtex(api_client, identifier=identifier)
+    return _structured(await _get_bibtex(api_client, identifier=identifier))
 
 
 # ------------------------------------------------------------------
@@ -232,7 +263,7 @@ async def get_bibtex(
 
 
 def main() -> None:
-    """Run the InspireHEP MCP server."""
+    """Run the InspireHEP MCP server over stdio."""
     logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
     logger.info("Starting InspireHEP MCP server...")
     logger.info(
@@ -241,7 +272,7 @@ def main() -> None:
         settings.cache_ttl,
         settings.requests_per_second,
     )
-    mcp.run()
+    mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":

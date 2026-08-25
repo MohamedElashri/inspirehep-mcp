@@ -5,7 +5,7 @@ import logging
 import time
 from typing import Any
 
-import httpx
+import httpx2 as httpx
 
 from .cache import TTLCache, SQLiteCache, create_cache
 from .config import settings
