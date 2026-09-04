@@ -1,0 +1,12 @@
+.git
+.github
+.venv
+.uv-cache
+.pytest_cache
+__pycache__
+*.py[cod]
+*.db
+.coverage
+dist
+tests
+docker-compose.yml

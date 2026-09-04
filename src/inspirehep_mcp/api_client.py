@@ -3,11 +3,14 @@
 import asyncio
 import logging
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx2 as httpx
 
-from .cache import TTLCache, SQLiteCache, create_cache
+from . import __version__
+from .cache import create_cache
 from .config import settings
 from .errors import APIError, NotFoundError, RateLimitError
 
@@ -51,11 +54,24 @@ class InspireHEPClient:
         cache_db_path: str | None = None,
         timeout: float | None = None,
         api_base_url: str | None = None,
+        max_pending_requests: int | None = None,
     ) -> None:
         rps = requests_per_second if requests_per_second is not None else settings.requests_per_second
+        max_pending = (
+            max_pending_requests
+            if max_pending_requests is not None
+            else settings.upstream_max_pending
+        )
+        if rps <= 0:
+            raise ValueError("requests_per_second must be positive")
+        if max_pending < 1:
+            raise ValueError("max_pending_requests must be at least 1")
         self._rate_interval = 1.0 / rps
         self._last_request_time: float = 0.0
         self._rate_lock = asyncio.Lock()
+        self._max_pending_requests = max_pending
+        self._pending_requests = 0
+        self._pending_lock = asyncio.Lock()
 
         self._cache = create_cache(
             persistent=cache_persistent if cache_persistent is not None else settings.cache_persistent,
@@ -83,7 +99,7 @@ class InspireHEPClient:
                 timeout=self._timeout,
                 headers={
                     "Accept": "application/json",
-                    "User-Agent": "inspirehep-mcp/0.1.0",
+                    "User-Agent": f"inspirehep-mcp/{__version__}",
                 },
             )
         return self._client
@@ -95,6 +111,25 @@ class InspireHEPClient:
     # ------------------------------------------------------------------
     # Rate limiting
     # ------------------------------------------------------------------
+
+    @asynccontextmanager
+    async def _request_slot(self) -> AsyncIterator[None]:
+        """Reserve bounded capacity for an upstream cache miss or fail fast."""
+        async with self._pending_lock:
+            if self._pending_requests >= self._max_pending_requests:
+                raise APIError(
+                    "Server busy",
+                    status_code=503,
+                    details="Too many InspireHEP requests are already pending.",
+                    suggestion="Retry after a short delay.",
+                )
+            self._pending_requests += 1
+
+        try:
+            yield
+        finally:
+            async with self._pending_lock:
+                self._pending_requests -= 1
 
     async def _wait_for_rate_limit(self) -> None:
         async with self._rate_lock:
@@ -126,51 +161,52 @@ class InspireHEPClient:
                 logger.debug("Cache hit: %s", cache_key)
                 return cached
 
-        await self._wait_for_rate_limit()
+        async with self._request_slot():
+            await self._wait_for_rate_limit()
 
-        client = await self._get_client()
-        t0 = time.monotonic()
-        try:
-            response = await client.request(method, path, params=params)
-        except httpx.TimeoutException as exc:
-            raise APIError(
-                "Request timed out",
-                details=f"The InspireHEP API did not respond within {self._timeout}s. "
-                f"Try again later or use a cached result. Path: {path}",
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise APIError(
-                "HTTP request failed",
-                details=f"Could not connect to InspireHEP API: {exc}. "
-                "Check your network connection.",
-            ) from exc
-        finally:
-            elapsed = time.monotonic() - t0
-            self._total_requests += 1
-            self._total_request_time += elapsed
+            client = await self._get_client()
+            t0 = time.monotonic()
+            try:
+                response = await client.request(method, path, params=params)
+            except httpx.TimeoutException as exc:
+                raise APIError(
+                    "Request timed out",
+                    details=f"The InspireHEP API did not respond within {self._timeout}s. "
+                    f"Try again later or use a cached result. Path: {path}",
+                ) from exc
+            except httpx.HTTPError as exc:
+                raise APIError(
+                    "HTTP request failed",
+                    details=f"Could not connect to InspireHEP API: {exc}. "
+                    "Check your network connection.",
+                ) from exc
+            finally:
+                elapsed = time.monotonic() - t0
+                self._total_requests += 1
+                self._total_request_time += elapsed
 
-        if response.status_code == 429:
-            retry_after = response.headers.get("Retry-After")
-            raise RateLimitError(
-                retry_after=float(retry_after) if retry_after else None
-            )
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After")
+                raise RateLimitError(
+                    retry_after=float(retry_after) if retry_after else None
+                )
 
-        if response.status_code == 404:
-            raise NotFoundError("resource", path)
+            if response.status_code == 404:
+                raise NotFoundError("resource", path)
 
-        if response.status_code >= 400:
-            raise APIError(
-                "API request failed",
-                status_code=response.status_code,
-                details=response.text[:500],
-            )
+            if response.status_code >= 400:
+                raise APIError(
+                    "API request failed",
+                    status_code=response.status_code,
+                    details=response.text[:500],
+                )
 
-        data: dict[str, Any] = response.json()
+            data: dict[str, Any] = response.json()
 
-        if use_cache and method == "GET":
-            self._cache.set(cache_key, data)
+            if use_cache and method == "GET":
+                self._cache.set(cache_key, data)
 
-        return data
+            return data
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -202,30 +238,31 @@ class InspireHEPClient:
         if cached is not None:
             return cached
 
-        await self._wait_for_rate_limit()
+        async with self._request_slot():
+            await self._wait_for_rate_limit()
 
-        client = await self._get_client()
-        try:
-            response = await client.request(
-                "GET", path, params=params, headers={"Accept": "*/*"}
-            )
-        except httpx.TimeoutException as exc:
-            raise APIError("Request timed out", details=str(exc)) from exc
-        except httpx.HTTPError as exc:
-            raise APIError("HTTP request failed", details=str(exc)) from exc
+            client = await self._get_client()
+            try:
+                response = await client.request(
+                    "GET", path, params=params, headers={"Accept": "*/*"}
+                )
+            except httpx.TimeoutException as exc:
+                raise APIError("Request timed out", details=str(exc)) from exc
+            except httpx.HTTPError as exc:
+                raise APIError("HTTP request failed", details=str(exc)) from exc
 
-        if response.status_code == 404:
-            raise NotFoundError("resource", path)
-        if response.status_code >= 400:
-            raise APIError(
-                "API request failed",
-                status_code=response.status_code,
-                details=response.text[:500],
-            )
+            if response.status_code == 404:
+                raise NotFoundError("resource", path)
+            if response.status_code >= 400:
+                raise APIError(
+                    "API request failed",
+                    status_code=response.status_code,
+                    details=response.text[:500],
+                )
 
-        text = response.text
-        self._cache.set(cache_key, text)
-        return text
+            text = response.text
+            self._cache.set(cache_key, text)
+            return text
 
     # ------------------------------------------------------------------
     # Literature endpoints

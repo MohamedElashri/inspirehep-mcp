@@ -2,22 +2,22 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [master, dev]
   pull_request:
-    branches: [main, dev]
+    branches: [master, dev]
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        python-version: ["3.12", "3.13", "3.14"]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
 
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
@@ -26,10 +26,40 @@ jobs:
         run: uv sync --dev
 
       - name: Run unit tests
-        run: uv run pytest tests/test_utils.py tests/test_cache.py tests/test_errors.py tests/test_config.py -v
+        run: >-
+          uv run pytest tests/test_utils.py tests/test_cache.py
+          tests/test_errors.py tests/test_config.py tests/test_rate_limit.py
+          tests/test_server.py tests/test_api_client_safety.py
+          tests/test_tools_safety.py -v
 
       - name: Run integration tests
         run: uv run pytest tests/test_tools_integration.py -v
 
       - name: Run tests with coverage
         run: uv run pytest tests/ --cov=inspirehep_mcp --cov-report=term-missing --cov-fail-under=80
+
+  docker:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build container image
+        run: docker build --tag inspirehep-mcp:test .
+
+      - name: Smoke test container
+        run: |
+          docker run --detach --rm --name inspirehep-mcp-test --publish 8000:8000 inspirehep-mcp:test
+          trap 'docker stop inspirehep-mcp-test >/dev/null 2>&1 || true' EXIT
+          for attempt in {1..15}; do
+            if curl --fail --silent http://127.0.0.1:8000/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs inspirehep-mcp-test
+          exit 1

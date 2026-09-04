@@ -3,10 +3,12 @@
 import json
 import logging
 from collections import Counter
+from datetime import UTC, datetime
 from typing import Any
 
 from .api_client import InspireHEPClient
-from .errors import APIError, InspireHEPError, InvalidIdentifierError, NotFoundError
+from .config import settings
+from .errors import InspireHEPError, InvalidIdentifierError, NotFoundError
 from .utils import (
     detect_identifier_type,
     normalize_arxiv_id,
@@ -20,7 +22,32 @@ logger = logging.getLogger(__name__)
 
 def _format_error(err: Exception) -> str:
     """Format an exception into a user-friendly error string."""
-    return json.dumps({"error": str(err)})
+    message = str(err)
+    if len(message) > 512:
+        message = f"{message[:509]}..."
+    return json.dumps({"error": message})
+
+
+def _format_result(result: dict[str, Any]) -> str:
+    """Serialize a result while enforcing the public response-size ceiling."""
+    payload = json.dumps(result, indent=2)
+    payload_size = len(payload.encode("utf-8"))
+    if payload_size <= settings.max_response_bytes:
+        return payload
+    return json.dumps(
+        {
+            "error": "Response exceeds the configured server safety limit.",
+            "max_response_bytes": settings.max_response_bytes,
+        }
+    )
+
+
+def _validate_text(value: str, name: str, max_length: int) -> None:
+    """Reject empty or excessively long client-controlled text."""
+    if not value.strip():
+        raise ValueError(f"{name} must not be empty")
+    if len(value) > max_length:
+        raise ValueError(f"{name} must be at most {max_length} characters")
 
 
 # ======================================================================
@@ -47,6 +74,12 @@ async def search_papers(
     Returns:
         JSON string with results for the LLM.
     """
+    try:
+        _validate_text(query, "query", settings.max_input_length)
+        _validate_text(sort, "sort", 64)
+    except ValueError as exc:
+        return _format_error(exc)
+
     # Validate sort
     valid_sorts = {"bestmatch", "mostrecent", "mostcited"}
     if sort not in valid_sorts:
@@ -75,7 +108,7 @@ async def search_papers(
         "sort": sort,
         "papers": papers,
     }
-    return json.dumps(result, indent=2)
+    return _format_result(result)
 
 
 # ======================================================================
@@ -214,6 +247,17 @@ async def get_paper_details(
         )
 
     try:
+        for name, value in (
+            ("inspire_id", inspire_id),
+            ("arxiv_id", arxiv_id),
+            ("doi", doi),
+        ):
+            if value is not None:
+                _validate_text(value, name, settings.max_identifier_length)
+    except ValueError as exc:
+        return _format_error(exc)
+
+    try:
         if inspire_id:
             nid = normalize_inspire_id(inspire_id)
             record = await client.get_literature_record(nid, fields=_DETAIL_FIELDS)
@@ -231,7 +275,7 @@ async def get_paper_details(
         return _format_error(exc)
 
     detail = _build_detail_response(record)
-    return json.dumps(detail, indent=2)
+    return _format_result(detail)
 
 
 # ======================================================================
@@ -264,6 +308,17 @@ async def get_paper_figures(
         )
 
     try:
+        for name, value in (
+            ("inspire_id", inspire_id),
+            ("arxiv_id", arxiv_id),
+            ("doi", doi),
+        ):
+            if value is not None:
+                _validate_text(value, name, settings.max_identifier_length)
+    except ValueError as exc:
+        return _format_error(exc)
+
+    try:
         if inspire_id:
             nid = normalize_inspire_id(inspire_id)
             record = await client.get_literature_record(nid, fields="figures,titles")
@@ -288,7 +343,7 @@ async def get_paper_figures(
     raw_figures = meta.get("figures", [])
     figures = []
     
-    for fig in raw_figures:
+    for fig in raw_figures[: settings.max_figures]:
         figures.append({
             "caption": fig.get("caption", ""),
             "url": fig.get("url", ""),
@@ -299,11 +354,13 @@ async def get_paper_figures(
         "inspire_id": str(meta.get("control_number", record.get("id", ""))),
         "title": title,
         "inspire_url": inspire_url,
-        "figures_count": len(figures),
+        "figures_count": len(raw_figures),
+        "returned_figures": len(figures),
+        "truncated": len(figures) < len(raw_figures),
         "figures": figures,
     }
 
-    return json.dumps(result, indent=2)
+    return _format_result(result)
 
 
 # ======================================================================
@@ -382,6 +439,15 @@ async def get_author_papers(
             ValueError("Either author_name or author_id must be provided")
         )
 
+    try:
+        if author_name is not None:
+            _validate_text(author_name, "author_name", settings.max_input_length)
+        if author_id is not None:
+            _validate_text(author_id, "author_id", settings.max_identifier_length)
+        _validate_text(sort, "sort", 64)
+    except ValueError as exc:
+        return _format_error(exc)
+
     valid_sorts = {"mostrecent", "mostcited"}
     if sort not in valid_sorts:
         return _format_error(
@@ -433,7 +499,7 @@ async def get_author_papers(
         },
         "papers": papers,
     }
-    return json.dumps(result, indent=2)
+    return _format_result(result)
 
 
 # ======================================================================
@@ -457,6 +523,12 @@ async def get_citations(
     Returns:
         JSON string with citation list, total count, and year-by-year timeline.
     """
+    try:
+        _validate_text(inspire_id, "inspire_id", settings.max_identifier_length)
+        _validate_text(direction, "direction", 64)
+    except ValueError as exc:
+        return _format_error(exc)
+
     valid_directions = {"citing", "cited_by"}
     if direction not in valid_directions:
         return _format_error(
@@ -506,7 +578,7 @@ async def get_citations(
         "timeline": timeline,
         "papers": papers,
     }
-    return json.dumps(result, indent=2)
+    return _format_result(result)
 
 
 # ======================================================================
@@ -567,6 +639,19 @@ async def search_by_collaboration(
     Returns:
         JSON string with collaboration publications, stats, and key papers.
     """
+    try:
+        _validate_text(
+            collaboration_name,
+            "collaboration_name",
+            settings.max_input_length,
+        )
+        _validate_text(sort, "sort", 64)
+    except ValueError as exc:
+        return _format_error(exc)
+
+    if year is not None and not 1800 <= year <= datetime.now(UTC).year + 1:
+        return _format_error(ValueError("year is outside the supported range"))
+
     valid_sorts = {"mostrecent", "mostcited"}
     if sort not in valid_sorts:
         return _format_error(
@@ -624,7 +709,7 @@ async def search_by_collaboration(
         ],
         "papers": papers,
     }
-    return json.dumps(result, indent=2)
+    return _format_result(result)
 
 
 # ======================================================================
@@ -648,6 +733,12 @@ async def get_references(
     Returns:
         JSON string containing the formatted references and metadata.
     """
+    try:
+        _validate_text(inspire_id, "inspire_id", settings.max_identifier_length)
+        _validate_text(format, "format", 64)
+    except ValueError as exc:
+        return _format_error(exc)
+
     valid_formats = {"bibtex", "json", "latex-us", "latex-eu"}
     if format not in valid_formats:
         return _format_error(
@@ -683,7 +774,7 @@ async def get_references(
             "references": "",
             "note": "This paper has no references in InspireHEP.",
         }
-        return json.dumps(result, indent=2)
+        return _format_result(result)
 
     # Extract reference record IDs
     ref_recids: list[str] = []
@@ -698,7 +789,7 @@ async def get_references(
     if format == "json":
         # Return structured JSON reference data
         ref_data: list[dict[str, Any]] = []
-        for ref in refs:
+        for ref in refs[: settings.max_references]:
             entry: dict[str, Any] = {}
             refinfo = ref.get("reference", {})
             rec_ref = ref.get("record", {}).get("$ref", "")
@@ -746,21 +837,30 @@ async def get_references(
             "inspire_id": nid,
             "paper_title": title,
             "total_references": len(refs),
+            "returned_references": len(ref_data),
+            "truncated": len(ref_data) < len(refs),
             "format": "json",
             "references": ref_data,
         }
-        return json.dumps(result, indent=2)
+        return _format_result(result)
 
     # For bibtex / latex formats, fetch from the API for each referenced paper
     # Use the API's built-in formatting by fetching BibTeX for the paper's references
     # Strategy: fetch BibTeX for each referenced record (batch via search query)
     if ref_recids:
         # Build a query to get all references at once, then fetch formatted output
-        recid_query = " or ".join(f"recid:{rid}" for rid in ref_recids[:250])
+        # The INSPIRE search endpoint itself accepts at most 250 results.
+        effective_limit = min(settings.max_references, 250)
+        limited_recids = ref_recids[:effective_limit]
+        recid_query = " or ".join(f"recid:{rid}" for rid in limited_recids)
         try:
             formatted_text = await client.get_text(
                 "/literature",
-                params={"q": recid_query, "size": min(len(ref_recids), 250), "format": format},
+                params={
+                    "q": recid_query,
+                    "size": len(limited_recids),
+                    "format": format,
+                },
             )
         except InspireHEPError as exc:
             return _format_error(exc)
@@ -772,10 +872,12 @@ async def get_references(
         "paper_title": title,
         "total_references": len(refs),
         "resolvable_references": len(ref_recids),
+        "returned_references": min(len(ref_recids), effective_limit),
+        "truncated": len(ref_recids) > effective_limit,
         "format": format,
         "references": formatted_text,
     }
-    return json.dumps(result, indent=2)
+    return _format_result(result)
 
 
 # ======================================================================
@@ -800,6 +902,11 @@ async def get_bibtex(
     Returns:
         JSON string containing the BibTeX entry and paper metadata.
     """
+    try:
+        _validate_text(identifier, "identifier", settings.max_identifier_length)
+    except ValueError as exc:
+        return _format_error(exc)
+
     # Detect identifier type and normalise
     try:
         id_type, normalised = detect_identifier_type(identifier)
@@ -852,4 +959,4 @@ async def get_bibtex(
         "texkey": texkey,
         "bibtex": bibtex_text.strip(),
     }
-    return json.dumps(result, indent=2)
+    return _format_result(result)
