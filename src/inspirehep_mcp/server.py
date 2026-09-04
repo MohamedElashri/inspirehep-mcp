@@ -1,14 +1,22 @@
-"""InspireHEP MCP Server - main entry point."""
+"""InspireHEP MCP Server - stdio and Streamable HTTP entry point."""
 
+import argparse
 import json
-from typing import Any
 import logging
+import math
+from collections.abc import Sequence
+from typing import Any
 
+import uvicorn
 from mcp.server.mcpserver import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from . import __version__
 from .api_client import InspireHEPClient
 from .config import settings
+from .rate_limit import RateLimitMiddleware, RequestBodyLimitMiddleware
 from .tools import get_author_papers as _get_author_papers
 from .tools import get_bibtex as _get_bibtex
 from .tools import get_citations as _get_citations
@@ -44,6 +52,14 @@ def _structured(result: str) -> dict:
     return json.loads(result)
 
 
+@mcp.custom_route("/health", methods=["GET"], include_in_schema=False)
+async def health_check(_: Request) -> JSONResponse:
+    """Return a lightweight health response without calling InspireHEP."""
+    return JSONResponse(
+        {"status": "ok", "service": "inspirehep-mcp", "version": __version__}
+    )
+
+
 # ------------------------------------------------------------------
 # Tool registrations
 # ------------------------------------------------------------------
@@ -53,16 +69,6 @@ def _structured(result: str) -> dict:
 async def ping() -> str:
     """Check that the InspireHEP MCP server is running."""
     return "InspireHEP MCP server is running."
-
-
-@mcp.tool(title="Server Stats", annotations=_READ_ONLY)
-async def server_stats() -> dict[str, Any]:
-    """Return cache and request performance statistics for the server.
-
-    Useful for monitoring cache hit rates, request counts, and
-    average response times. No parameters required.
-    """
-    return _structured(json.dumps(api_client.full_stats))
 
 
 @mcp.tool(title="Search Papers", annotations=_READ_ONLY)
@@ -262,17 +268,143 @@ async def get_bibtex(
 # ------------------------------------------------------------------
 
 
-def main() -> None:
-    """Run the InspireHEP MCP server over stdio."""
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run the InspireHEP MCP server")
+    parser.add_argument(
+        "--transport",
+        choices=("stdio", "streamable-http"),
+        default=settings.transport,
+        help="MCP transport (default: INSPIREHEP_TRANSPORT or stdio)",
+    )
+    parser.add_argument("--host", default=settings.host, help="HTTP bind address")
+    parser.add_argument("--port", default=settings.port, type=int, help="HTTP port")
+    parser.add_argument(
+        "--path", default=settings.http_path, help="Streamable HTTP endpoint path"
+    )
+    parser.add_argument(
+        "--stateless-http",
+        action=argparse.BooleanOptionalAction,
+        default=settings.http_stateless,
+        help="Use independent stateless HTTP requests",
+    )
+    parser.add_argument(
+        "--json-response",
+        action=argparse.BooleanOptionalAction,
+        default=settings.http_json_response,
+        help="Return JSON instead of opening an SSE stream when possible",
+    )
+    parser.add_argument(
+        "--rate-limit",
+        default=settings.http_rate_limit,
+        type=float,
+        help="Per-client HTTP requests per minute; 0 disables the limit",
+    )
+    parser.add_argument(
+        "--rate-limit-burst",
+        default=settings.http_rate_limit_burst,
+        type=int,
+        help="Maximum per-client HTTP request burst",
+    )
+    parser.add_argument(
+        "--max-body-size",
+        default=settings.http_max_body_size,
+        type=int,
+        help="Maximum MCP request body in bytes; 0 disables the limit",
+    )
+    parser.add_argument(
+        "--max-concurrency",
+        default=settings.http_max_concurrency,
+        type=int,
+        help="Maximum concurrent HTTP connections or tasks",
+    )
+    parser.add_argument(
+        "--timeout-keep-alive",
+        default=settings.http_keep_alive_timeout,
+        type=int,
+        help="Idle HTTP keep-alive timeout in seconds",
+    )
+    parser.add_argument(
+        "--trust-proxy-headers",
+        action=argparse.BooleanOptionalAction,
+        default=settings.trust_proxy_headers,
+        help="Use X-Forwarded-For for rate-limit identity",
+    )
+    parser.add_argument("--version", action="version", version=__version__)
+    args = parser.parse_args(argv)
+    if args.transport not in ("stdio", "streamable-http"):
+        parser.error("--transport must be 'stdio' or 'streamable-http'")
+    if not 1 <= args.port <= 65535:
+        parser.error("--port must be between 1 and 65535")
+    if not math.isfinite(args.rate_limit) or args.rate_limit < 0:
+        parser.error("--rate-limit must be a finite, non-negative number")
+    if args.rate_limit_burst < 1:
+        parser.error("--rate-limit-burst must be at least 1")
+    if args.max_body_size < 0:
+        parser.error("--max-body-size must be non-negative")
+    if args.max_concurrency < 1:
+        parser.error("--max-concurrency must be at least 1")
+    if args.timeout_keep_alive < 0:
+        parser.error("--timeout-keep-alive must be non-negative")
+    if not args.path.startswith("/"):
+        parser.error("--path must start with '/'")
+    return args
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Run the server, retaining stdio as the backward-compatible default."""
+    args = _parse_args(argv)
     logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
-    logger.info("Starting InspireHEP MCP server...")
+    logger.info("Starting InspireHEP MCP server using %s", args.transport)
     logger.info(
         "Config: cache_persistent=%s, cache_ttl=%s, rate_limit=%.1f req/s",
         settings.cache_persistent,
         settings.cache_ttl,
         settings.requests_per_second,
     )
-    mcp.run(transport="stdio")
+    if args.transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+
+    transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=settings.dns_rebinding_protection,
+        allowed_hosts=settings.allowed_hosts,
+        allowed_origins=settings.allowed_origins,
+    )
+    logger.info("MCP endpoint: http://%s:%d%s", args.host, args.port, args.path)
+    logger.info(
+        "HTTP rate limit: %.1f requests/minute, burst=%d",
+        args.rate_limit,
+        args.rate_limit_burst,
+    )
+    http_app = mcp.streamable_http_app(
+        host=args.host,
+        streamable_http_path=args.path,
+        stateless_http=args.stateless_http,
+        json_response=args.json_response,
+        transport_security=transport_security,
+    )
+    body_limited_app = RequestBodyLimitMiddleware(
+        http_app,
+        max_body_size=args.max_body_size,
+        path=args.path,
+    )
+    app = RateLimitMiddleware(
+        body_limited_app,
+        requests_per_minute=args.rate_limit,
+        burst=args.rate_limit_burst,
+        path=args.path,
+        trust_proxy_headers=args.trust_proxy_headers,
+        max_clients=settings.http_rate_limit_max_clients,
+    )
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        log_level=settings.log_level.lower(),
+        proxy_headers=False,
+        limit_concurrency=args.max_concurrency,
+        timeout_keep_alive=args.timeout_keep_alive,
+    )
 
 
 if __name__ == "__main__":

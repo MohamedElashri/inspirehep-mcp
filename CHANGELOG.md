@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-04
+
+### Added
+
+- Native Streamable HTTP endpoint mode with stateless JSON responses
+- Container image with non-root execution and a health check
+- Release-tag publishing to the GitHub Container Registry
+- Bounded, per-client token-bucket rate limiting for the MCP HTTP endpoint,
+  with health-check exemption and optional trusted-proxy support
+- Request-body, HTTP concurrency, tool input/output, and upstream queue limits
+- Hardened Docker Compose deployment example
+
+### Changed
+
+- CI now tests only the supported Python versions (3.12–3.14) and the actual
+  default branch
+- Package version advanced to 0.3.0 for the endpoint deployment release
+- Integration documentation now covers Antigravity CLI and removes obsolete
+  client instructions
+- Container builds now install the exact dependency versions in `uv.lock`
+
+### Fixed
+
+- GitHub Releases now download the Python build artifact before attaching it
+- The InspireHEP API User-Agent now reports the package version
+- Source distributions no longer include local test and package-manager caches
+- Removed the public `server_stats` tool to avoid exposing operational metrics
+
+### Security
+
+- Enabled DNS-rebinding Host and Origin validation for remote MCP traffic
+- Refreshed dependencies to versions without the advisories found in the prior
+  lockfile
+- Pinned all GitHub Actions to immutable commit SHAs and reduced release-job
+  token permissions
+
 ## [0.2.0] - 2026-08-25
 
 Migrated the server to the latest MCP ecosystem: Python SDK v2 and the

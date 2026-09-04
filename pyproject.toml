@@ -1,6 +1,6 @@
 [project]
 name = "inspirehep-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "MCP server for InspireHEP - integrate high-energy physics literature resources with LLMs"
 readme = "README.md"
 license = { text = "AGPL-3.0" }
@@ -30,6 +30,9 @@ inspirehep-mcp = "inspirehep_mcp.server:main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build]
+exclude = ["/.coverage", "/.uv-cache"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
