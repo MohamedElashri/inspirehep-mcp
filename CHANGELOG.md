@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Integration documentation now covers Antigravity CLI and removes obsolete
   client instructions
 - Container builds now install the exact dependency versions in `uv.lock`
+- Runtime version reporting now derives from package metadata, leaving
+  `pyproject.toml` as the single version source
 
 ### Fixed
 
