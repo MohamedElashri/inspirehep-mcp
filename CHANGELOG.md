@@ -11,31 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Codex CLI/IDE setup and remote HTTP examples for Codex and Claude Code
-- Pagination and compact paper summaries for literature, author, citation,
-  and collaboration searches, retaining identifiers and source URLs
-- Published input enums and bounds, complete safety annotations, and modern
-  MCP tool-catalogue cache hints
-- Offline protocol tests for modern and legacy clients over in-process,
-  Streamable HTTP, and actual stdio subprocess connections
+- Pagination and compact results for paper, author, citation, and collaboration searches
+- Codex setup, Claude Code HTTP examples, and modern/legacy MCP protocol tests
 
 ### Changed
 
-- Updated MCP SDK to 2.3.0 and httpx2/httpcore2 to 2.16.0 in the lockfile;
-  declared directly imported runtime dependencies
-- Server instructions now support tool-search discovery and explain bounded
-  research workflows and the scope of returned metrics
-- Literature tool failures now set MCP `isError` instead of returning a
-  successful structured result containing an error
-- MCP calls now reject out-of-range page sizes and invalid sort, direction,
-  or reference-format arguments before contacting INSPIRE. Full paper metadata
-  remains the default; compact summaries are opt-in
+- Upgraded MCP SDK to 2.3.0 and httpx2/httpcore2 to 2.16.0
+- Improved tool discovery, input validation, safety annotations, and MCP error reporting
 
 ### Fixed
 
-- Close upstream HTTP connections on transport shutdown, including cancellation
-- Preserve citation page sizes up to 250 in the API client
-- Handle formatted bibliographies whose references have no resolvable record IDs
+- Close upstream connections on shutdown and cancellation
+- Support 250 citation results and bibliographies with unlinked references
 
 ## [0.3.0] - 2026-09-04
 
