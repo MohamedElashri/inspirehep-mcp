@@ -341,6 +341,22 @@ uv run pytest tests/ --cov=inspirehep_mcp --cov-report=term-missing
 uv run pytest tests/ --ignore=tests/test_tools_integration.py
 ```
 
+GitHub Actions use native pins in `.github/workflows/actions.lock`, managed by
+Sanad 1.0.1. After editing workflows, regenerate and verify the lockfile:
+
+```bash
+sanad sync --write
+sanad check --base origin/master
+```
+
+Use `sanad plan` to review action updates. Dependabot retains the weekly update
+schedule and seven-day cooldown. Commit the workflow, policy, and lockfile changes
+together.
+
+The release workflow uses OIDC trusted publishing with `uv publish`. Attestation
+tools live in the locked `publish` dependency group, separate from the runtime
+dependencies; the publishing job generates and uploads PyPI attestations.
+
 ## LICENCE
 
 This project is licensed under the AGPL-3.0 License - see the [LICENSE](LICENSE) file for details.

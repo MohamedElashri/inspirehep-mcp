@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Adopt Sanad 1.0.1 native action locks and retain the seven-day update cooldown
+- Refresh runtime, development, and build dependencies
+- Publish with uv and locked PyPI attestation tooling for native-lock compatibility
+
 ## [0.4.0] - 2026-11-01
 
 ### Added
