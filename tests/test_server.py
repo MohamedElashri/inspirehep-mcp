@@ -1,7 +1,9 @@
 """Tests for native server startup and the HTTP health endpoint."""
 
 import json
+from unittest.mock import AsyncMock
 
+import anyio
 import pytest
 
 from inspirehep_mcp import __version__, server
@@ -138,3 +140,18 @@ async def test_health_check():
         "service": "inspirehep-mcp",
         "version": __version__,
     }
+
+
+@pytest.mark.asyncio
+async def test_shutdown_closes_upstream_even_inside_cancelled_scope(monkeypatch):
+    closed = []
+
+    async def close():
+        await anyio.lowlevel.checkpoint()
+        closed.append(True)
+
+    monkeypatch.setattr(server.api_client, "close", AsyncMock(side_effect=close))
+    with anyio.CancelScope() as scope:
+        async with server.server_lifespan(server.mcp):
+            scope.cancel()
+    assert closed == [True]

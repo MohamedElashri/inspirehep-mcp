@@ -284,7 +284,7 @@ class InspireHEPClient:
         params: dict[str, Any] = {
             "q": query,
             "sort": sort,
-            "size": min(size, 100),
+            "size": max(1, min(size, 250)),
             "page": page,
             "fields": fields or _LITERATURE_FIELDS,
         }

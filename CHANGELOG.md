@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-01
+
+### Added
+
+- Pagination and compact results for paper, author, citation, and collaboration searches
+- Codex setup, Claude Code HTTP examples, and modern/legacy MCP protocol tests
+
+### Changed
+
+- Upgraded MCP SDK to 2.3.0 and httpx2/httpcore2 to 2.16.0
+- Improved tool discovery, input validation, safety annotations, and MCP error reporting
+
+### Fixed
+
+- Close upstream connections on shutdown and cancellation
+- Support 250 citation results and bibliographies with unlinked references
+
 ## [0.3.0] - 2026-09-04
 
 ### Added

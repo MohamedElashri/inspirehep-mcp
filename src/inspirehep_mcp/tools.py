@@ -50,15 +50,50 @@ def _validate_text(value: str, name: str, max_length: int) -> None:
         raise ValueError(f"{name} must be at most {max_length} characters")
 
 
+def _validate_page(page: int) -> None:
+    if isinstance(page, bool) or not isinstance(page, int) or page < 1:
+        raise ValueError("page must be a positive integer")
+
+
+def _page_metadata(page: int, size: int, returned: int, total: int) -> dict[str, Any]:
+    """Expose a continuation without encouraging retries of empty pages."""
+    has_more = returned > 0 and page * size < total
+    return {
+        "page": page,
+        "size": size,
+        "has_more": has_more,
+        "next_page": page + 1 if has_more else None,
+    }
+
+
+def _paper_results(papers: list[dict], compact: bool) -> list[dict]:
+    """Keep identifiers and provenance when reducing agent context usage."""
+    if not compact:
+        return papers
+    fields = (
+        "inspire_id",
+        "title",
+        "arxiv_id",
+        "doi",
+        "date",
+        "citation_count",
+        "inspire_url",
+    )
+    return [{key: paper[key] for key in fields} for paper in papers]
+
+
 # ======================================================================
 # search_papers
 # ======================================================================
+
 
 async def search_papers(
     client: InspireHEPClient,
     query: str,
     sort: str = "bestmatch",
     size: int = 10,
+    page: int = 1,
+    compact: bool = False,
 ) -> str:
     """Search InspireHEP for papers matching a query.
 
@@ -70,6 +105,8 @@ async def search_papers(
         query: Search query string.
         sort: One of "bestmatch", "mostrecent", "mostcited".
         size: Number of results to return (1-100).
+        page: One-based result page; keep size, sort, and query fixed.
+        compact: Omit abstracts and author lists to reduce result size.
 
     Returns:
         JSON string with results for the LLM.
@@ -77,6 +114,7 @@ async def search_papers(
     try:
         _validate_text(query, "query", settings.max_input_length)
         _validate_text(sort, "sort", 64)
+        _validate_page(page)
     except ValueError as exc:
         return _format_error(exc)
 
@@ -84,14 +122,16 @@ async def search_papers(
     valid_sorts = {"bestmatch", "mostrecent", "mostcited"}
     if sort not in valid_sorts:
         return _format_error(
-            ValueError(f"Invalid sort option '{sort}'. Must be one of: {', '.join(valid_sorts)}")
+            ValueError(
+                f"Invalid sort option '{sort}'. Must be one of: {', '.join(valid_sorts)}"
+            )
         )
 
     # Clamp size
     size = max(1, min(size, 100))
 
     try:
-        raw = await client.search_literature(query, sort=sort, size=size)
+        raw = await client.search_literature(query, sort=sort, size=size, page=page)
     except InspireHEPError as exc:
         return _format_error(exc)
 
@@ -106,7 +146,8 @@ async def search_papers(
         "returned": len(papers),
         "query": query,
         "sort": sort,
-        "papers": papers,
+        **_page_metadata(page, size, len(papers), total),
+        "papers": _paper_results(papers, compact),
     }
     return _format_result(result)
 
@@ -153,9 +194,7 @@ def _build_detail_response(record: dict) -> dict[str, Any]:
     base["authors"] = [
         {
             "full_name": a.get("full_name", ""),
-            "affiliations": [
-                aff.get("value", "") for aff in a.get("affiliations", [])
-            ],
+            "affiliations": [aff.get("value", "") for aff in a.get("affiliations", [])],
             "inspire_ids": [
                 i.get("value", "")
                 for i in a.get("ids", [])
@@ -243,7 +282,9 @@ async def get_paper_details(
     """
     if not any([inspire_id, arxiv_id, doi]):
         return _format_error(
-            ValueError("At least one identifier must be provided (inspire_id, arxiv_id, or doi)")
+            ValueError(
+                "At least one identifier must be provided (inspire_id, arxiv_id, or doi)"
+            )
         )
 
     try:
@@ -282,6 +323,7 @@ async def get_paper_details(
 # get_paper_figures
 # ======================================================================
 
+
 async def get_paper_figures(
     client: InspireHEPClient,
     inspire_id: str | None = None,
@@ -304,7 +346,9 @@ async def get_paper_figures(
     """
     if not any([inspire_id, arxiv_id, doi]):
         return _format_error(
-            ValueError("At least one identifier must be provided (inspire_id, arxiv_id, or doi)")
+            ValueError(
+                "At least one identifier must be provided (inspire_id, arxiv_id, or doi)"
+            )
         )
 
     try:
@@ -339,16 +383,18 @@ async def get_paper_figures(
     titles = meta.get("titles", [])
     title = titles[0].get("title", "") if titles else ""
     inspire_url = f"https://inspirehep.net/literature/{record.get('id', '')}"
-    
+
     raw_figures = meta.get("figures", [])
     figures = []
-    
+
     for fig in raw_figures[: settings.max_figures]:
-        figures.append({
-            "caption": fig.get("caption", ""),
-            "url": fig.get("url", ""),
-            "description": fig.get("description", "")
-        })
+        figures.append(
+            {
+                "caption": fig.get("caption", ""),
+                "url": fig.get("url", ""),
+                "description": fig.get("description", ""),
+            }
+        )
 
     result: dict[str, Any] = {
         "inspire_id": str(meta.get("control_number", record.get("id", ""))),
@@ -367,6 +413,7 @@ async def get_paper_figures(
 # get_author_papers
 # ======================================================================
 
+
 def _compute_h_index(citation_counts: list[int]) -> int:
     """Compute the h-index from a list of citation counts."""
     sorted_counts = sorted(citation_counts, reverse=True)
@@ -379,7 +426,9 @@ def _compute_h_index(citation_counts: list[int]) -> int:
     return h
 
 
-async def _resolve_author_bai(client: InspireHEPClient, author_name: str) -> tuple[str, dict[str, Any]]:
+async def _resolve_author_bai(
+    client: InspireHEPClient, author_name: str
+) -> tuple[str, dict[str, Any]]:
     """Resolve an author name to a BAI via the authors API.
 
     Returns (bai_string, author_info_dict).
@@ -415,6 +464,8 @@ async def get_author_papers(
     author_id: str | None = None,
     sort: str = "mostrecent",
     size: int = 20,
+    page: int = 1,
+    compact: bool = False,
 ) -> str:
     """Retrieve publication history and metrics for an author.
 
@@ -430,6 +481,8 @@ async def get_author_papers(
         author_id: InspireHEP author identifier (BAI).
         sort: One of "mostrecent", "mostcited".
         size: Number of papers to return (1-100).
+        page: One-based result page. Metrics describe this page only.
+        compact: Omit abstracts and author lists to reduce result size.
 
     Returns:
         JSON string with publication list and aggregate metrics.
@@ -445,13 +498,16 @@ async def get_author_papers(
         if author_id is not None:
             _validate_text(author_id, "author_id", settings.max_identifier_length)
         _validate_text(sort, "sort", 64)
+        _validate_page(page)
     except ValueError as exc:
         return _format_error(exc)
 
     valid_sorts = {"mostrecent", "mostcited"}
     if sort not in valid_sorts:
         return _format_error(
-            ValueError(f"Invalid sort option '{sort}'. Must be one of: {', '.join(valid_sorts)}")
+            ValueError(
+                f"Invalid sort option '{sort}'. Must be one of: {', '.join(valid_sorts)}"
+            )
         )
 
     size = max(1, min(size, 100))
@@ -467,7 +523,7 @@ async def get_author_papers(
         query = f"a {bai}"
 
     try:
-        raw = await client.search_literature(query, sort=sort, size=size)
+        raw = await client.search_literature(query, sort=sort, size=size, page=page)
     except InspireHEPError as exc:
         return _format_error(exc)
 
@@ -487,7 +543,9 @@ async def get_author_papers(
         "total_papers": total,
         "returned": len(papers),
         "sort": sort,
+        **_page_metadata(page, size, len(papers), total),
         "metrics": {
+            "scope": "returned_page",
             "total_citations": total_citations,
             "h_index": h_index,
             "h_index_note": (
@@ -495,9 +553,11 @@ async def get_author_papers(
                 if len(papers) < total
                 else "Computed from all papers"
             ),
-            "average_citations": round(total_citations / len(papers), 1) if papers else 0,
+            "average_citations": round(total_citations / len(papers), 1)
+            if papers
+            else 0,
         },
-        "papers": papers,
+        "papers": _paper_results(papers, compact),
     }
     return _format_result(result)
 
@@ -506,11 +566,14 @@ async def get_author_papers(
 # get_citations
 # ======================================================================
 
+
 async def get_citations(
     client: InspireHEPClient,
     inspire_id: str,
     direction: str = "citing",
     size: int = 50,
+    page: int = 1,
+    compact: bool = False,
 ) -> str:
     """Retrieve citation graph data for a paper.
 
@@ -519,6 +582,8 @@ async def get_citations(
         inspire_id: InspireHEP record ID.
         direction: "citing" (papers that cite this) or "cited_by" (papers this cites).
         size: Number of results (1-250).
+        page: One-based result page. Timeline describes this page only.
+        compact: Omit abstracts and author lists to reduce result size.
 
     Returns:
         JSON string with citation list, total count, and year-by-year timeline.
@@ -526,13 +591,16 @@ async def get_citations(
     try:
         _validate_text(inspire_id, "inspire_id", settings.max_identifier_length)
         _validate_text(direction, "direction", 64)
+        _validate_page(page)
     except ValueError as exc:
         return _format_error(exc)
 
     valid_directions = {"citing", "cited_by"}
     if direction not in valid_directions:
         return _format_error(
-            ValueError(f"Invalid direction '{direction}'. Must be one of: {', '.join(valid_directions)}")
+            ValueError(
+                f"Invalid direction '{direction}'. Must be one of: {', '.join(valid_directions)}"
+            )
         )
 
     try:
@@ -546,12 +614,12 @@ async def get_citations(
         if direction == "citing":
             # Papers that cite this paper
             raw = await client.search_literature(
-                f"refersto:{nid}", sort="mostrecent", size=size
+                f"refersto:{nid}", sort="mostrecent", size=size, page=page
             )
         else:
             # Papers that this paper cites (its references)
             raw = await client.search_literature(
-                f"citedby:recid:{nid}", sort="mostrecent", size=size
+                f"citedby:recid:{nid}", sort="mostrecent", size=size, page=page
             )
     except InspireHEPError as exc:
         return _format_error(exc)
@@ -575,8 +643,10 @@ async def get_citations(
         "direction": direction,
         "total_citations": total,
         "returned": len(papers),
+        **_page_metadata(page, size, len(papers), total),
         "timeline": timeline,
-        "papers": papers,
+        "timeline_scope": "returned_page",
+        "papers": _paper_results(papers, compact),
     }
     return _format_result(result)
 
@@ -626,6 +696,8 @@ async def search_by_collaboration(
     sort: str = "mostrecent",
     size: int = 20,
     year: int | None = None,
+    page: int = 1,
+    compact: bool = False,
 ) -> str:
     """Find publications from a specific experimental collaboration.
 
@@ -635,6 +707,8 @@ async def search_by_collaboration(
         sort: One of "mostrecent", "mostcited".
         size: Number of results (1-100).
         year: Optional year filter.
+        page: One-based result page. Statistics describe this page only.
+        compact: Omit abstracts and author lists to reduce result size.
 
     Returns:
         JSON string with collaboration publications, stats, and key papers.
@@ -646,6 +720,7 @@ async def search_by_collaboration(
             settings.max_input_length,
         )
         _validate_text(sort, "sort", 64)
+        _validate_page(page)
     except ValueError as exc:
         return _format_error(exc)
 
@@ -655,7 +730,9 @@ async def search_by_collaboration(
     valid_sorts = {"mostrecent", "mostcited"}
     if sort not in valid_sorts:
         return _format_error(
-            ValueError(f"Invalid sort option '{sort}'. Must be one of: {', '.join(valid_sorts)}")
+            ValueError(
+                f"Invalid sort option '{sort}'. Must be one of: {', '.join(valid_sorts)}"
+            )
         )
 
     size = max(1, min(size, 100))
@@ -667,7 +744,7 @@ async def search_by_collaboration(
         query += f" and date {year}"
 
     try:
-        raw = await client.search_literature(query, sort=sort, size=size)
+        raw = await client.search_literature(query, sort=sort, size=size, page=page)
     except InspireHEPError as exc:
         return _format_error(exc)
 
@@ -678,7 +755,9 @@ async def search_by_collaboration(
     papers = [parse_paper_metadata(r) for r in records]
 
     # Identify top-cited papers from the returned set
-    top_cited = sorted(papers, key=lambda p: p.get("citation_count", 0), reverse=True)[:5]
+    top_cited = sorted(papers, key=lambda p: p.get("citation_count", 0), reverse=True)[
+        :5
+    ]
 
     # Publication year distribution from returned papers
     year_counts: Counter[str] = Counter()
@@ -694,7 +773,9 @@ async def search_by_collaboration(
         "returned": len(papers),
         "sort": sort,
         "year_filter": year,
+        **_page_metadata(page, size, len(papers), total),
         "statistics": {
+            "scope": "returned_page",
             "year_distribution": dict(sorted(year_counts.items())),
             "total_citations": sum(p.get("citation_count", 0) for p in papers),
         },
@@ -707,7 +788,7 @@ async def search_by_collaboration(
             }
             for p in top_cited
         ],
-        "papers": papers,
+        "papers": _paper_results(papers, compact),
     }
     return _format_result(result)
 
@@ -715,6 +796,7 @@ async def search_by_collaboration(
 # ======================================================================
 # get_references
 # ======================================================================
+
 
 async def get_references(
     client: InspireHEPClient,
@@ -742,7 +824,9 @@ async def get_references(
     valid_formats = {"bibtex", "json", "latex-us", "latex-eu"}
     if format not in valid_formats:
         return _format_error(
-            ValueError(f"Invalid format '{format}'. Must be one of: {', '.join(sorted(valid_formats))}")
+            ValueError(
+                f"Invalid format '{format}'. Must be one of: {', '.join(sorted(valid_formats))}"
+            )
         )
 
     try:
@@ -847,10 +931,10 @@ async def get_references(
     # For bibtex / latex formats, fetch from the API for each referenced paper
     # Use the API's built-in formatting by fetching BibTeX for the paper's references
     # Strategy: fetch BibTeX for each referenced record (batch via search query)
+    # The INSPIRE search endpoint itself accepts at most 250 results.
+    effective_limit = min(settings.max_references, 250)
     if ref_recids:
         # Build a query to get all references at once, then fetch formatted output
-        # The INSPIRE search endpoint itself accepts at most 250 results.
-        effective_limit = min(settings.max_references, 250)
         limited_recids = ref_recids[:effective_limit]
         recid_query = " or ".join(f"recid:{rid}" for rid in limited_recids)
         try:
@@ -884,6 +968,7 @@ async def get_references(
 # get_bibtex
 # ======================================================================
 
+
 async def get_bibtex(
     client: InspireHEPClient,
     identifier: str,
@@ -916,11 +1001,17 @@ async def get_bibtex(
     # Resolve to an Inspire record so we can get the recid
     try:
         if id_type == "inspire":
-            record = await client.get_literature_record(normalised, fields="titles,texkeys")
+            record = await client.get_literature_record(
+                normalised, fields="titles,texkeys"
+            )
         elif id_type == "arxiv":
-            record = await client.get_literature_by_arxiv(normalised, fields="titles,texkeys")
+            record = await client.get_literature_by_arxiv(
+                normalised, fields="titles,texkeys"
+            )
         elif id_type == "doi":
-            record = await client.get_literature_by_doi(normalised, fields="titles,texkeys")
+            record = await client.get_literature_by_doi(
+                normalised, fields="titles,texkeys"
+            )
         else:
             return _format_error(ValueError(f"Unsupported identifier type: {id_type}"))
     except NotFoundError:
@@ -940,7 +1031,9 @@ async def get_bibtex(
     texkey = texkeys[0] if texkeys else None
 
     if not recid:
-        return _format_error(ValueError("Could not determine Inspire record ID for this paper."))
+        return _format_error(
+            ValueError("Could not determine Inspire record ID for this paper.")
+        )
 
     # Fetch BibTeX formatted text
     try:

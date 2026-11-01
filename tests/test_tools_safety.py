@@ -6,7 +6,9 @@ import pytest
 
 from inspirehep_mcp.config import settings
 from inspirehep_mcp.tools import (
+    get_author_papers,
     get_bibtex,
+    get_citations,
     get_paper_figures,
     get_references,
     search_by_collaboration,
@@ -20,9 +22,11 @@ class FakeClient:
         self.search_result = search_result or {"hits": {"total": 0, "hits": []}}
         self.called = False
         self.text_params = None
+        self.search_kwargs = None
 
     async def search_literature(self, *args, **kwargs):
         self.called = True
+        self.search_kwargs = kwargs
         return self.search_result
 
     async def get_literature_record(self, *args, **kwargs):
@@ -147,3 +151,84 @@ async def test_collaboration_year_is_bounded():
 
     assert "supported range" in result["error"]
     assert client.called is False
+
+
+_PAGED_TOOLS = [
+    (search_papers, {"query": "higgs"}),
+    (get_author_papers, {"author_id": "S.Weinberg.1"}),
+    (get_citations, {"inspire_id": "1"}),
+    (search_by_collaboration, {"collaboration_name": "LHCb"}),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool,kwargs", _PAGED_TOOLS)
+@pytest.mark.parametrize("page", [0, -1, True, 1.5])
+async def test_invalid_page_never_calls_upstream(tool, kwargs, page):
+    client = FakeClient()
+    result = json.loads(await tool(client, **kwargs, page=page))
+    assert "page must be a positive integer" in result["error"]
+    assert client.called is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool,kwargs", _PAGED_TOOLS)
+@pytest.mark.parametrize(
+    "total,page,count,next_page",
+    [
+        (5, 1, 2, 2),
+        (5, 2, 2, 3),
+        (5, 3, 1, None),
+        (5, 4, 0, None),
+    ],
+)
+async def test_pagination_and_compact_provenance(
+    tool, kwargs, total, page, count, next_page
+):
+    client = FakeClient(
+        search_result={
+            "hits": {
+                "total": total,
+                "hits": [
+                    {
+                        "id": str(index),
+                        "metadata": {
+                            "titles": [{"title": "Higgs"}],
+                            "abstracts": [{"value": "abstract"}],
+                        },
+                    }
+                    for index in range(count)
+                ],
+            }
+        }
+    )
+    full = json.loads(await tool(client, **kwargs, size=2, page=page))
+    compact = json.loads(await tool(client, **kwargs, size=2, page=page, compact=True))
+    assert client.search_kwargs["page"] == page
+    assert client.search_kwargs["size"] == 2
+    assert compact["next_page"] == next_page
+    assert compact["has_more"] is (next_page is not None)
+    assert compact["returned"] == count
+    for full_paper, summary in zip(full["papers"], compact["papers"], strict=True):
+        assert "abstract" in full_paper
+        assert "abstract" not in summary
+        assert "authors" not in summary
+        assert summary["inspire_url"] == full_paper["inspire_url"]
+        assert summary["inspire_id"] == full_paper["inspire_id"]
+
+
+@pytest.mark.asyncio
+async def test_formatted_references_without_resolvable_records():
+    client = FakeClient(
+        record={
+            "metadata": {
+                "references": [{"reference": {"title": {"title": "Unlinked paper"}}}],
+            }
+        }
+    )
+    result = json.loads(await get_references(client, inspire_id="1"))
+    assert result["total_references"] == 1
+    assert result["returned_references"] == 0
+    assert result["resolvable_references"] == 0
+    assert "No resolvable references" in result["references"]
+    assert client.text_params is None
