@@ -69,6 +69,35 @@ class TestSearchPapers:
         result = json.loads(await search_papers(client, query="neutrino", size=200))
         assert result["returned"] <= 100
 
+    async def test_compact_search_continues_on_next_page(self, client):
+        first = json.loads(
+            await search_papers(
+                client,
+                query="higgs boson",
+                sort="mostcited",
+                size=2,
+                compact=True,
+            )
+        )
+        assert first["has_more"] is True
+        assert first["next_page"] == 2
+        second = json.loads(
+            await search_papers(
+                client,
+                query="higgs boson",
+                sort="mostcited",
+                size=2,
+                page=first["next_page"],
+                compact=True,
+            )
+        )
+        assert second["page"] == 2
+        assert second["returned"] == 2
+        assert {p["inspire_id"] for p in first["papers"]}.isdisjoint(
+            p["inspire_id"] for p in second["papers"]
+        )
+        assert all("abstract" not in p and p["inspire_url"] for p in second["papers"])
+
 
 # ======================================================================
 # get_paper_details
@@ -111,7 +140,6 @@ class TestGetPaperDetails:
         assert "document_type" in result
         assert "urls" in result
         assert isinstance(result["urls"], dict)
-
 
         assert isinstance(result["urls"], dict)
 
@@ -220,9 +248,7 @@ class TestGetCitations:
         assert "error" in result
 
     async def test_invalid_id(self, client):
-        result = json.loads(
-            await get_citations(client, inspire_id="not-numeric")
-        )
+        result = json.loads(await get_citations(client, inspire_id="not-numeric"))
         assert "error" in result
 
     async def test_timeline_has_years(self, client):
@@ -313,15 +339,11 @@ class TestGetReferences:
         assert "error" in result
 
     async def test_not_found(self, client):
-        result = json.loads(
-            await get_references(client, inspire_id="99999999999")
-        )
+        result = json.loads(await get_references(client, inspire_id="99999999999"))
         assert "error" in result
 
     async def test_invalid_id(self, client):
-        result = json.loads(
-            await get_references(client, inspire_id="abc")
-        )
+        result = json.loads(await get_references(client, inspire_id="abc"))
         assert "error" in result
 
 
