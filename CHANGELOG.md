@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Refresh runtime, development, build, and publishing dependencies, including
   AnyIO 4.16.0, Pydantic 2.14.3, pytest-asyncio 1.5.0, and pypi-attestations 0.0.31
-- Update GitHub Actions, including setup-uv 10.3.3 and Sanad 1.1.0, with native
+- Update GitHub Actions, including setup-uv 10.3.3 and Sanad 1.0.2, with native
   action locks; retain Dependabot's seven-day action update cooldown
 - Update the Docker build's uv version to 0.13.8
 - Publish with uv and locked PyPI attestation tooling for native-lock compatibility

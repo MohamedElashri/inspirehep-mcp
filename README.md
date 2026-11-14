@@ -342,7 +342,7 @@ uv run pytest tests/ --ignore=tests/test_tools_integration.py
 ```
 
 GitHub Actions use native pins in `.github/workflows/actions.lock`, managed by
-Sanad 1.1.0. After editing workflows, regenerate and verify the lockfile:
+Sanad 1.0.2. After editing workflows, regenerate and verify the lockfile:
 
 ```bash
 sanad sync --write
