@@ -1,6 +1,6 @@
 FROM python:3.12-slim AS builder
 
-ARG UV_VERSION=0.9.26
+ARG UV_VERSION=0.13.8
 
 WORKDIR /build
 

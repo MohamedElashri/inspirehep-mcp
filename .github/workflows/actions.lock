@@ -5,49 +5,49 @@ version: 'v0.0.3'
 workflows:
     '.github/workflows/ci.yml':
         - 'actions/checkout@v7.0.1'
-        - 'astral-sh/setup-uv@v7.6.0'
+        - 'astral-sh/setup-uv@v10.3.3'
     '.github/workflows/release.yml':
         - 'actions/checkout@v7.0.1'
-        - 'actions/download-artifact@v8.0.1'
-        - 'actions/upload-artifact@v7.0.1'
-        - 'astral-sh/setup-uv@v7.6.0'
-        - 'docker/build-push-action@v7.3.0'
-        - 'docker/login-action@v4.6.0'
+        - 'actions/download-artifact@v8.0.2'
+        - 'actions/upload-artifact@v7.0.2'
+        - 'astral-sh/setup-uv@v10.3.3'
+        - 'docker/build-push-action@v7.4.0'
+        - 'docker/login-action@v4.8.0'
         - 'docker/metadata-action@v6.2.0'
-        - 'docker/setup-buildx-action@v4.3.0'
-        - 'softprops/action-gh-release@v3.0.2'
+        - 'docker/setup-buildx-action@v4.4.1'
+        - 'softprops/action-gh-release@v3.0.4'
     '.github/workflows/sanad.yml':
         - 'actions/checkout@v7.0.1'
-        - 'mohamedelashri/sanad@v1.0.1'
+        - 'mohamedelashri/sanad@v1.0.2'
 dependencies:
     'actions/checkout@v7.0.1':
         ref: 'v7.0.1'
         commit: 'sha1-3d3c42e5aac5ba805825da76410c181273ba90b1'
         owner_id: 44036562
         repo_id: 197814629
-    'actions/download-artifact@v8.0.1':
-        ref: 'v8.0.1'
-        commit: 'sha1-3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c'
+    'actions/download-artifact@v8.0.2':
+        ref: 'v8.0.2'
+        commit: 'sha1-9000827ccba6bdab643e8b6fd33ac0654aef8333'
         owner_id: 44036562
         repo_id: 192626254
-    'actions/upload-artifact@v7.0.1':
-        ref: 'v7.0.1'
-        commit: 'sha1-043fb46d1a93c77aae656e7c1c64a875d1fc6a0a'
+    'actions/upload-artifact@v7.0.2':
+        ref: 'v7.0.2'
+        commit: 'sha1-cf430e030ddbb5b0abf93d22962f4752f3646cd9'
         owner_id: 44036562
         repo_id: 192625955
-    'astral-sh/setup-uv@v7.6.0':
-        ref: 'v7.6.0'
-        commit: 'sha1-37802adc94f370d6bfd71619e3f0bf239e1f3b78'
+    'astral-sh/setup-uv@v10.3.3':
+        ref: 'v10.3.3'
+        commit: 'sha1-68559e99cc807c1eb7e9238fd43a15bba460eec2'
         owner_id: 115962839
         repo_id: 846733598
-    'docker/build-push-action@v7.3.0':
-        ref: 'v7.3.0'
-        commit: 'sha1-53b7df96c91f9c12dcc8a07bcb9ccacbed38856a'
+    'docker/build-push-action@v7.4.0':
+        ref: 'v7.4.0'
+        commit: 'sha1-c3c9e263c25d99ce0380d002d59b67737d91b0dc'
         owner_id: 5429470
         repo_id: 241092383
-    'docker/login-action@v4.6.0':
-        ref: 'v4.6.0'
-        commit: 'sha1-dbcb813823bdd20940b903addbd779551569679f'
+    'docker/login-action@v4.8.0':
+        ref: 'v4.8.0'
+        commit: 'sha1-8aa5831fb8d48d8f76594c7ddde61ae58019f550'
         owner_id: 5429470
         repo_id: 287743349
     'docker/metadata-action@v6.2.0':
@@ -55,18 +55,18 @@ dependencies:
         commit: 'sha1-dc802804100637a589fabce1cb79ff13a1411302'
         owner_id: 5429470
         repo_id: 306769011
-    'docker/setup-buildx-action@v4.3.0':
-        ref: 'v4.3.0'
-        commit: 'sha1-37fe631027851001ddb9b187196cc803df7f5f0e'
+    'docker/setup-buildx-action@v4.4.1':
+        ref: 'v4.4.1'
+        commit: 'sha1-f87e5991a6d7451dcb8d9637bfbc97413f497069'
         owner_id: 5429470
         repo_id: 288485773
-    'mohamedelashri/sanad@v1.0.1':
-        ref: 'v1.0.1'
-        commit: 'sha1-a73376eda34400ec92e51fcefec6ee287871da38'
+    'mohamedelashri/sanad@v1.0.2':
+        ref: 'v1.0.2'
+        commit: 'sha1-8c3467535793d9b31edbb7e7f49d35ef88e2a2d5'
         owner_id: 25898984
         repo_id: 1242434851
-    'softprops/action-gh-release@v3.0.2':
-        ref: 'v3.0.2'
-        commit: 'sha1-3d0d9888cb7fd7b750713d6e236d1fcb99157228'
+    'softprops/action-gh-release@v3.0.4':
+        ref: 'v3.0.4'
+        commit: 'sha1-8a0cd651e5b2365bd640854a3fa5dfc70e4875f3'
         owner_id: 2242
         repo_id: 204253808
